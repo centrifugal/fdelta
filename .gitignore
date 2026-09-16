@@ -1,0 +1,24 @@
+# Test binaries, including the ones `make cross` builds for other platforms.
+*.test
+
+# Output of `make cover` and `make sec-sarif`.
+coverage.out
+gosec.sarif
+
+# Profiles from `go test -cpuprofile` and friends.
+*.prof
+*.pprof
+cpu.out
+mem.out
+
+# Go workspace files, which are local to a checkout.
+go.work
+go.work.sum
+
+# Editors and macOS.
+.DS_Store
+.idea/
+.vscode/
+
+# Note: testdata/fuzz/ is deliberately NOT ignored. Go writes failing fuzz
+# inputs there, and those belong in the repository as regression seeds.

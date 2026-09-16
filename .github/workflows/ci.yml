@@ -1,0 +1,246 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # The long fuzz run below is the point of this: keep exploring the input
+    # space on a schedule rather than only when someone pushes.
+    - cron: "0 4 * * 1"
+
+permissions:
+  contents: read
+
+# Every job below runs Makefile targets, so what passes locally passes here.
+# `make check` covers the first two jobs in one command.
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    # The Makefile recipes are POSIX sh, so Windows runs them under Git Bash
+    # rather than cmd.exe.
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - name: Install make
+        if: runner.os == 'Windows'
+        run: choco install make --no-progress -y
+      - run: make build
+      - run: make vet
+      - run: make test
+      - run: make test-race
+      - name: Coverage
+        if: matrix.os == 'ubuntu-latest'
+        run: make cover
+      - name: Upload coverage
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage.out
+
+  purego:
+    name: pure Go (no cgo)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      # The package must never require a C toolchain of anyone importing it.
+      # The vendored delta.c is test-only, behind the cref tag, and in an
+      # internal package no non-test file imports; this job is what keeps that
+      # true if someone later reaches for it from the wrong place.
+      - run: make no-cgo
+      - run: make test-purego
+      - run: make portable
+
+  reference:
+    name: cross-check against Fossil's delta.c
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      # Builds the vendored src/delta.c through cgo and runs this package
+      # against it: same checksums, same digit counts, deltas that apply in
+      # both directions, and no delta the reference accepts that we do not.
+      - run: make test-cref
+
+  interop-js:
+    name: interoperability with the JavaScript decoder
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+      # Checking against delta.c proves conformance to the reference. This
+      # proves the deployed path: the JavaScript SDK vendors this decoder, so
+      # it is what reads a Go server's deltas in a browser.
+      - run: make interop-js
+
+  cross:
+    name: cross-platform behaviour
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - uses: docker/setup-qemu-action@v3
+      # Several bounds checks in this package are only load-bearing where int
+      # is 32 bits, and Create's word-at-a-time comparisons have to give the
+      # same answer whatever the machine's byte order. Both are easy to get
+      # wrong and impossible to catch on amd64 alone.
+      - run: make cross
+
+  fuzz:
+    name: fuzz (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - FuzzRoundTrip
+          - FuzzApply
+          - FuzzAppendForms
+          - FuzzAppendApplyPreservesDst
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      # A short run on every push and pull request, long on the weekly
+      # schedule. The corpus is cached so successive runs keep going deeper
+      # instead of starting from the seeds each time.
+      - name: Cache the fuzz corpus
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/go-build/fuzz
+          key: fuzz-${{ matrix.target }}-${{ github.run_id }}
+          restore-keys: fuzz-${{ matrix.target }}-
+      - name: Fuzz
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ]; then FUZZTIME=10m; else FUZZTIME=60s; fi
+          make fuzz FUZZ_TARGETS=${{ matrix.target }} FUZZTIME=$FUZZTIME
+      - name: Upload any failing input
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-failure-${{ matrix.target }}
+          path: testdata/fuzz/
+
+  fuzz-reference:
+    name: fuzz against delta.c (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [FuzzCRefRoundTrip, FuzzCRefApplyAgrees, FuzzCRefArbitraryValidDeltas]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - name: Cache the fuzz corpus
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/go-build/fuzz
+          key: fuzz-cref-${{ matrix.target }}-${{ github.run_id }}
+          restore-keys: fuzz-cref-${{ matrix.target }}-
+      - name: Fuzz
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ]; then FUZZTIME=10m; else FUZZTIME=60s; fi
+          make fuzz-cref FUZZ_CREF_TARGETS=${{ matrix.target }} FUZZTIME=$FUZZTIME
+      - name: Upload any failing input
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-cref-failure-${{ matrix.target }}
+          path: testdata/fuzz/
+
+  exhaustive:
+    name: exhaustive verification
+    # Checks the codec over all 2^32 values and the checksum over every input
+    # of length zero to three. Tens of seconds, so it runs on the schedule and
+    # on pushes to main rather than on every pull request.
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - run: make exhaustive
+
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      # The analyzer set lives in .golangci.yml so that a local run and a CI
+      # run are the same run: gosec, staticcheck, govet with every check on,
+      # errcheck, errorlint, gocritic, revive and bidichk among others.
+      - run: make lint
+
+  security:
+    name: security
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - run: make sec
+      # Also emit SARIF, so gosec findings reach GitHub's code scanning view
+      # rather than only the job log.
+      - name: gosec (SARIF)
+        if: always()
+        run: make sec-sarif
+      - name: Upload gosec results
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: gosec.sarif
+          category: gosec
+
+  codeql:
+    name: codeql
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: go
+          queries: security-extended
+      - uses: github/codeql-action/analyze@v3
+        with:
+          category: codeql-go

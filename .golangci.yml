@@ -1,0 +1,83 @@
+version: "2"
+
+# The package is a leaf dependency that parses bytes from the network, so the
+# set below leans towards correctness and security checks and away from style
+# opinions. Anything that would fight the shape of the encoder (function
+# length, cyclomatic complexity) is deliberately absent: Create is one long
+# loop because the algorithm is one long loop.
+linters:
+  default: none
+  enable:
+    - bidichk        # bidirectional unicode in source, a supply-chain trick
+    - copyloopvar
+    - errcheck
+    - errorlint      # error comparison and wrapping done correctly
+    - gocritic
+    - gosec          # the security checks; see the #nosec notes in the source
+    - govet
+    - ineffassign
+    - makezero
+    - misspell
+    - nilerr
+    - predeclared    # shadowing new, len, cap and friends
+    - revive
+    - staticcheck
+    - unconvert      # redundant conversions, easy to accumulate in this code
+    - unused
+    - usestdlibvars
+    - wastedassign
+
+  settings:
+    govet:
+      enable-all: true
+      disable:
+        - fieldalignment # the structs here are laid out for the algorithm
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - performance
+        - style
+      disabled-checks:
+        - unnamedResult
+        - hugeParam    # the reference copy takes values by design
+    revive:
+      rules:
+        - name: exported
+        - name: var-naming
+        - name: indent-error-flow
+        - name: errorf
+        - name: context-as-argument
+        - name: range-val-in-closure
+
+  exclusions:
+    rules:
+      # internal/cref is test-only scaffolding that drives Fossil's C source
+      # through cgo. It never ships: it is internal, build-tagged, and imported
+      # by nothing outside a test. Linting it reports cgo's own generated
+      # conversions (attributed to the build cache, not to any file here) and
+      # trips gocritic's dupImport on the "C" pseudo-package. It is still
+      # compiled and vetted by the reference CI job.
+      - path: internal/cref
+        linters:
+          - gocritic
+          - gosec
+          - revive
+          - staticcheck
+      # Test data has to be deterministic, so it is generated with math/rand
+      # (G404) and narrowed to bytes (G115). Neither is a security boundary.
+      # Every other gosec check still applies to the tests.
+      - path: _test\.go
+        text: "G404|G115"
+        linters:
+          - gosec
+      # Test data has to be deterministic, so it is generated with math/rand
+      # (G404) and narrowed to bytes (G115). Neither is a security boundary.
+      # Every other gosec check still applies to the tests.
+      - path: _test\.go
+        text: "G404|G115"
+        linters:
+          - gosec
+
+formatters:
+  enable:
+    - gofmt

@@ -14,6 +14,10 @@ permissions:
 
 # Every job below runs Makefile targets, so what passes locally passes here.
 # `make check` covers the first two jobs in one command.
+#
+# Every setup-go step passes `cache: false`. Its cache is keyed on go.sum, and
+# this module has no dependencies and so no go.sum, which made each job log a
+# failed restore for a cache that could never hold anything.
 
 jobs:
   test:
@@ -29,10 +33,11 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: stable
+          cache: false
       - name: Install make
         if: runner.os == 'Windows'
         run: choco install make --no-progress -y
@@ -45,7 +50,7 @@ jobs:
         run: make cover
       - name: Upload coverage
         if: matrix.os == 'ubuntu-latest'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage
           path: coverage.out
@@ -54,10 +59,11 @@ jobs:
     name: pure Go (no cgo)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: stable
+          cache: false
       # The package must never require a C toolchain of anyone importing it.
       # The vendored delta.c is test-only, behind the cref tag, and in an
       # internal package no non-test file imports; this job is what keeps that
@@ -70,10 +76,11 @@ jobs:
     name: cross-check against Fossil's delta.c
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: stable
+          cache: false
       # Builds the vendored src/delta.c through cgo and runs this package
       # against it: same checksums, same digit counts, deltas that apply in
       # both directions, and no delta the reference accepts that we do not.
@@ -83,11 +90,12 @@ jobs:
     name: interoperability with the JavaScript decoder
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: stable
-      - uses: actions/setup-node@v4
+          cache: false
+      - uses: actions/setup-node@v7
         with:
           node-version: lts/*
       # Checking against delta.c proves conformance to the reference. This
@@ -99,11 +107,12 @@ jobs:
     name: cross-platform behaviour
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: stable
-      - uses: docker/setup-qemu-action@v3
+          cache: false
+      - uses: docker/setup-qemu-action@v4
       # Several bounds checks in this package are only load-bearing where int
       # is 32 bits, and Create's word-at-a-time comparisons have to give the
       # same answer whatever the machine's byte order. Both are easy to get
@@ -122,15 +131,16 @@ jobs:
           - FuzzAppendForms
           - FuzzAppendApplyPreservesDst
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: stable
+          cache: false
       # A short run on every push and pull request, long on the weekly
       # schedule. The corpus is cached so successive runs keep going deeper
       # instead of starting from the seeds each time.
       - name: Cache the fuzz corpus
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/go-build/fuzz
           key: fuzz-${{ matrix.target }}-${{ github.run_id }}
@@ -141,7 +151,7 @@ jobs:
           make fuzz FUZZ_TARGETS=${{ matrix.target }} FUZZTIME=$FUZZTIME
       - name: Upload any failing input
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: fuzz-failure-${{ matrix.target }}
           path: testdata/fuzz/
@@ -154,12 +164,13 @@ jobs:
       matrix:
         target: [FuzzCRefRoundTrip, FuzzCRefApplyAgrees, FuzzCRefArbitraryValidDeltas]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: stable
+          cache: false
       - name: Cache the fuzz corpus
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/go-build/fuzz
           key: fuzz-cref-${{ matrix.target }}-${{ github.run_id }}
@@ -170,7 +181,7 @@ jobs:
           make fuzz-cref FUZZ_CREF_TARGETS=${{ matrix.target }} FUZZTIME=$FUZZTIME
       - name: Upload any failing input
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: fuzz-cref-failure-${{ matrix.target }}
           path: testdata/fuzz/
@@ -183,10 +194,11 @@ jobs:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: stable
+          cache: false
       - run: make exhaustive
 
   lint:
@@ -196,10 +208,11 @@ jobs:
       contents: read
       security-events: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: stable
+          cache: false
       # The analyzer set lives in .golangci.yml so that a local run and a CI
       # run are the same run: gosec, staticcheck, govet with every check on,
       # errcheck, errorlint, gocritic, revive and bidichk among others.
@@ -211,7 +224,7 @@ jobs:
         run: make lint-sarif
       - name: Upload golangci-lint results
         if: always()
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: golangci-lint.sarif
           category: golangci-lint
@@ -222,10 +235,11 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: stable
+          cache: false
       - run: make sec
 
   codeql:
@@ -235,14 +249,15 @@ jobs:
       contents: read
       security-events: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: stable
-      - uses: github/codeql-action/init@v3
+          cache: false
+      - uses: github/codeql-action/init@v4
         with:
           languages: go
           queries: security-extended
-      - uses: github/codeql-action/analyze@v3
+      - uses: github/codeql-action/analyze@v4
         with:
           category: codeql-go

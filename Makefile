@@ -9,7 +9,12 @@ GO ?= go
 # not of the day it was run. Bump them deliberately, and read what the new
 # version reports before doing so: these tools do add checks between releases.
 GOLANGCI_LINT_VERSION ?= v2.13.2
-GOSEC_VERSION         ?= v2.22.9
+# A pinned gosec also pins the golang.org/x/tools it analyses with, and
+# go/packages cannot read export data from a toolchain newer than it knows:
+# v2.22.9 fails every package on Go 1.27 with an internal error about the
+# stdlib being imported without types. So this pin has to keep up with the Go
+# releases CI runs on.
+GOSEC_VERSION         ?= v2.29.0
 GOVULNCHECK_VERSION   ?= latest
 
 GOLANGCI_LINT := $(GO) run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)

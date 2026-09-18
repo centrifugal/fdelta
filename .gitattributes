@@ -1,0 +1,7 @@
+# Everything under testdata/ is exact bytes. A delta encodes its sizes as
+# decimal digits terminated by a newline, and golden.txt is compared byte for
+# byte, so a checkout that rewrites LF to CRLF makes them unparseable. Four of
+# the five Fossil vectors failed this way on Windows; the fifth survived only
+# because it happens to contain a byte that made Git treat it as binary
+# already.
+testdata/** -text

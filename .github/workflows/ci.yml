@@ -192,6 +192,9 @@ jobs:
   lint:
     name: lint
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -201,30 +204,29 @@ jobs:
       # run are the same run: gosec, staticcheck, govet with every check on,
       # errcheck, errorlint, gocritic, revive and bidichk among others.
       - run: make lint
+      # Also emit SARIF, so findings reach GitHub's code scanning view rather
+      # than only the job log.
+      - name: golangci-lint (SARIF)
+        if: always()
+        run: make lint-sarif
+      - name: Upload golangci-lint results
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: golangci-lint.sarif
+          category: golangci-lint
 
   security:
     name: security
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      security-events: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version: stable
       - run: make sec
-      # Also emit SARIF, so gosec findings reach GitHub's code scanning view
-      # rather than only the job log.
-      - name: gosec (SARIF)
-        if: always()
-        run: make sec-sarif
-      - name: Upload gosec results
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: gosec.sarif
-          category: gosec
 
   codeql:
     name: codeql

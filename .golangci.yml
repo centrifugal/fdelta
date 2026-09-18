@@ -70,13 +70,6 @@ linters:
         text: "G404|G115"
         linters:
           - gosec
-      # Test data has to be deterministic, so it is generated with math/rand
-      # (G404) and narrowed to bytes (G115). Neither is a security boundary.
-      # Every other gosec check still applies to the tests.
-      - path: _test\.go
-        text: "G404|G115"
-        linters:
-          - gosec
 
 formatters:
   enable:

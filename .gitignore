@@ -1,9 +1,9 @@
 # Test binaries, including the ones `make cross` builds for other platforms.
 *.test
 
-# Output of `make cover` and `make sec-sarif`.
+# Output of `make cover` and `make lint-sarif`.
 coverage.out
-gosec.sarif
+golangci-lint.sarif
 
 # Profiles from `go test -cpuprofile` and friends.
 *.prof

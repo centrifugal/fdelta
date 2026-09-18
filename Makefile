@@ -5,21 +5,24 @@
 
 GO ?= go
 
-# Tool versions are pinned so that a lint result is a property of the code and
-# not of the day it was run. Bump them deliberately, and read what the new
-# version reports before doing so: these tools do add checks between releases.
-GOLANGCI_LINT_VERSION ?= v2.13.2
-# A pinned gosec also pins the golang.org/x/tools it analyses with, and
-# go/packages cannot read export data from a toolchain newer than it knows:
-# v2.22.9 fails every package on Go 1.27 with an internal error about the
-# stdlib being imported without types. So this pin has to keep up with the Go
-# releases CI runs on.
-GOSEC_VERSION         ?= v2.29.0
+# The analysers track their latest releases. They add checks between versions,
+# and a check that only exists in the newest release is exactly the one worth
+# running against this code. The cost is that a release can turn a run red on a
+# commit that changed nothing, so read what it reports before assuming the code
+# regressed. Pin any of these to reproduce an older run:
+#
+#   make lint GOLANGCI_LINT_VERSION=v2.13.2
+#
+# Staying current also keeps them able to analyse current Go: an analyser pins
+# the golang.org/x/tools it reads packages with, and go/packages cannot read
+# export data from a toolchain newer than it knows.
+GOLANGCI_LINT_VERSION ?= latest
 GOVULNCHECK_VERSION   ?= latest
 
 GOLANGCI_LINT := $(GO) run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
-GOSEC         := $(GO) run github.com/securego/gosec/v2/cmd/gosec@$(GOSEC_VERSION)
 GOVULNCHECK   := $(GO) run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
+
+SARIF_FILE ?= golangci-lint.sarif
 
 # How long each fuzz target runs. CI uses a short time per push and a long one
 # on its weekly schedule.
@@ -170,14 +173,18 @@ lint: fmt-check ## Run golangci-lint, with and without the cref tag
 	$(GOLANGCI_LINT) run ./...
 	$(GOLANGCI_LINT) run --build-tags=cref ./...
 
+# gosec is not run as its own binary: golangci-lint has it as a linter and
+# .golangci.yml enables it, so a standalone run would be the same analyser
+# twice. It would also be the weaker of the two -- gosec on its own skips
+# _test.go unless asked, while golangci-lint lints tests by default, which is
+# where all but the #nosec-annotated findings in this repo live.
 .PHONY: sec
-sec: ## Run gosec and govulncheck
-	$(GOSEC) -exclude-dir=internal/cref ./...
+sec: ## Run govulncheck (gosec runs as part of `make lint`)
 	$(GOVULNCHECK) ./...
 
-.PHONY: sec-sarif
-sec-sarif: ## Run gosec writing SARIF, for upload to code scanning
-	$(GOSEC) -exclude-dir=internal/cref -fmt=sarif -out=gosec.sarif -stdout -verbose=text ./...
+.PHONY: lint-sarif
+lint-sarif: ## Run golangci-lint writing SARIF, for upload to code scanning
+	$(GOLANGCI_LINT) run --output.text.path=stdout --output.sarif.path=$(SARIF_FILE) ./...
 
 # --- benchmarks ------------------------------------------------------------
 
@@ -204,7 +211,7 @@ tidy: ## Tidy go.mod
 
 .PHONY: clean
 clean: ## Remove build and coverage artefacts
-	rm -f coverage.out gosec.sarif fdelta-*.test
+	rm -f coverage.out $(SARIF_FILE) fdelta-*.test
 	$(GO) clean -testcache
 
 # --- the gate --------------------------------------------------------------

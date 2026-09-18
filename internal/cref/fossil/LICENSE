@@ -1,9 +1,7 @@
-Copyright (c) 2026 Centrifugal Labs LTD (this implementation)
-Copyright (c) 2020 Ruslan Sokolov (Go port)
-Copyright (c) 2016 Endel Dreyer (C# port)
-Copyright (c) 2014 Dmitry Chestnykh (JavaScript port)
-Copyright (c) 2007 D. Richard Hipp (original C version)
-All rights reserved.
+Unmodified copies of src/delta.c and src/delta.h from the Fossil SCM, which
+distributes them under the Simplified BSD License.
+
+Copyright (c) 2006 D. Richard Hipp
 
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:

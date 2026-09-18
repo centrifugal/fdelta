@@ -223,3 +223,9 @@ wrong but are deliberate. Read it before changing anything here.
 BSD 2-Clause. See [LICENSE](LICENSE), which carries the notices of every
 implementation this descends from, beginning with the original C in Fossil by
 D. Richard Hipp.
+
+`internal/cref/fossil/` holds unmodified copies of Fossil's `src/delta.c` and
+`src/delta.h`, compiled only under the `cref` build tag to check this package
+against the reference implementation. They are never part of what the package
+ships, and carry Fossil's own notice in
+[internal/cref/fossil/LICENSE](internal/cref/fossil/LICENSE).

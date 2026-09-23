@@ -2,6 +2,8 @@ package fdelta
 
 import (
 	"bytes"
+	"errors"
+	"math"
 	"math/rand/v2"
 	"slices"
 	"sync"
@@ -191,5 +193,43 @@ func TestCreateAllocations(t *testing.T) {
 	// One allocation, for the delta itself: the hash tables come from the pool.
 	if got > 1 {
 		t.Fatalf("Create made %v allocations per call, want at most 1", got)
+	}
+}
+
+// The format's lengths are 32-bit, so fitsFormat has to draw the line exactly
+// there: one byte more and the header would wrap.
+func TestFitsFormat(t *testing.T) {
+	for _, n := range []int{0, 1, 1 << 20, 1<<31 - 1} {
+		if !fitsFormat(n) {
+			t.Fatalf("fitsFormat(%d) = false, want true", n)
+		}
+	}
+	if math.MaxInt > maxFormatLen {
+		var m uint64 = maxFormatLen
+		last := int(m) // #nosec G115 -- only reached where int is 64 bits
+		if !fitsFormat(last) {
+			t.Fatalf("fitsFormat(%d) = false, want true", last)
+		}
+		if fitsFormat(last + 1) {
+			t.Fatalf("fitsFormat(%d) = true, want false", last+1)
+		}
+	}
+}
+
+// What Create returns for an input the format cannot describe must be
+// rejected, and rejected as malformed rather than as a checksum mismatch, by
+// whatever origin it is applied to. Under cref, delta.c is held to the same.
+func TestUnrepresentableDeltaIsRejected(t *testing.T) {
+	delta := appendUnrepresentable(nil)
+	for _, origin := range [][]byte{nil, []byte("x"), bytes.Repeat([]byte("origin"), 100)} {
+		out, err := Apply(origin, delta)
+		if !errors.Is(err, errUnterminated) || out != nil {
+			t.Fatalf("Apply(%d byte origin, %q) = %q, %v, want %v", len(origin), delta, out, err, errUnterminated)
+		}
+	}
+
+	prefix := []byte("keep")
+	if got := appendUnrepresentable(slices.Clone(prefix)); !bytes.Equal(got[:len(prefix)], prefix) {
+		t.Fatalf("appendUnrepresentable did not append to dst: %q", got)
 	}
 }

@@ -9,7 +9,8 @@ const maxInt = int(^uint(0) >> 1)
 
 // Apply returns the bytes that delta produces from origin.
 //
-// It returns [ErrChecksumMismatch] when the delta is well formed but origin is
+// It returns [ErrChecksumMismatch] when the delta is well formed but the output
+// does not match the checksum it carries, which almost always means origin is
 // not the source it was built from, and an error wrapping [ErrInvalidDelta]
 // when the delta itself is malformed. It never returns partial output and
 // never panics, whatever the delta contains.
@@ -19,7 +20,7 @@ const maxInt = int(^uint(0) >> 1)
 // # Applying deltas from an untrusted peer
 //
 // A malformed delta is rejected without allocating anything. A well formed one
-// is a different matter: a copy command costs about seven bytes and can copy
+// is a different matter: a copy command costs a handful of bytes and can copy
 // the whole of origin, so a delta that is itself tiny can legitimately demand
 // an enormous output, and Apply will produce it. Measured on a 1 MiB origin, a
 // 3.5 KB delta can ask for 500 MB, and the format's own ceiling is 4 GiB per
@@ -34,8 +35,11 @@ const maxInt = int(^uint(0) >> 1)
 //	}
 //
 // Note also what the checksum is and is not. It binds the output to the claim
-// the delta makes about it, so it catches corruption and a wrong origin. It is
-// not authentication: whoever supplies the delta chooses the output, and can
+// the delta makes about it, so it catches corruption and most cases of a wrong
+// origin. It is a plain sum of 32-bit words, fixed by the format, so it cannot
+// catch them all: an origin that differs from the right one in a way that
+// leaves the sum unchanged, such as two values swapped four bytes apart,
+// applies without error to the wrong output. It is also not authentication: whoever supplies the delta chooses the output, and can
 // supply a correct checksum for whatever they chose. If the deltas you apply
 // need to be trusted, that has to come from somewhere else.
 func Apply(origin, delta []byte) ([]byte, error) {
@@ -60,16 +64,23 @@ func Apply(origin, delta []byte) ([]byte, error) {
 // zeroing that buffer is most of the work. Applying a 16 KiB payload takes
 // roughly a third as long with a buffer that is already big enough.
 //
-// On any error dst is returned unchanged and its contents are untouched: the
-// delta is checked in full before a single byte is written.
+// On any error dst is returned unchanged and dst[:len(dst)] is untouched. A
+// malformed delta is rejected before a single byte is written; a checksum
+// mismatch is only discovered after the output has been produced, so by then
+// the spare capacity beyond len(dst) may have been written to.
 //
-// dst may not overlap origin or delta.
+// dst, including its spare capacity, may not overlap origin or delta.
 func AppendApply(dst, origin, delta []byte) ([]byte, error) {
 	size, sum, body, err := planApply(len(origin), delta)
 	if err != nil {
 		return dst, err
 	}
 	start := len(dst)
+	// Only reachable where int is 32 bits: without it, a large enough dst and
+	// output would overflow the length slices.Grow is asked for, and it panics.
+	if size > maxInt-start {
+		return dst, errOutputTooLarge
+	}
 	out := slices.Grow(dst, size)[:start+size]
 	execApply(out[start:], origin, delta, body)
 	if checksum(out[start:]) != sum {
@@ -87,7 +98,7 @@ func AppendApply(dst, origin, delta []byte) ([]byte, error) {
 // delta here can rely on Apply not exceeding what this returned.
 //
 // It is worth checking. A delta is small but its output need not be: a copy
-// command costs four bytes and can copy the whole of origin, so a short delta
+// command costs a handful of bytes and can copy the whole of origin, so a short delta
 // can legitimately ask for an output far larger than either input. That is
 // inherent to the format and true of every implementation of it; a caller
 // taking deltas from an untrusted peer should decide its own ceiling here.

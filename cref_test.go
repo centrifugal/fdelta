@@ -204,6 +204,17 @@ func TestCRef_ApplyAgreesOnMalformed(t *testing.T) {
 	}
 }
 
+// What Create returns for an input too large for the format has to be
+// rejected by the reference too, or a peer running delta.c could accept it.
+func TestCRef_UnrepresentableDeltaIsRejected(t *testing.T) {
+	delta := appendUnrepresentable(nil)
+	for _, origin := range [][]byte{nil, []byte("x"), bytes.Repeat([]byte("origin"), 100)} {
+		if out, err := cref.Apply(origin, delta); !errors.Is(err, cref.ErrRejected) {
+			t.Fatalf("delta.c applied %q to a %d byte origin: %q, %v", delta, len(origin), out, err)
+		}
+	}
+}
+
 // The encoder is allowed to differ from delta.c in which delta it picks, but
 // not to be materially worse at picking one.
 func TestCRef_DeltaSizesAreComparable(t *testing.T) {

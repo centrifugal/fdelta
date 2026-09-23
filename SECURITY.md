@@ -15,8 +15,8 @@ expected to:
 - never panic, for any input;
 - never return output alongside an error, and never return partial output;
 - never allocate on behalf of a delta it has not first validated;
-- report a delta applied to the wrong source as `ErrChecksumMismatch` rather
-  than returning data that looks plausible.
+- report `ErrChecksumMismatch` whenever the output does not match the checksum
+  the delta carries.
 
 A failure of any of those is a vulnerability in this package. The test suite
 fuzzes `Apply` against these properties continuously, and the differential
@@ -69,6 +69,17 @@ whatever they chose. `ErrChecksumMismatch` means "this did not reconstruct what
 the sender said it would", not "this came from someone entitled to send it". If
 the deltas you apply need to be trusted, that has to come from elsewhere.
 
+**The checksum does not catch every wrong source.** It is a plain sum of
+big-endian 32-bit words, fixed by the format. That catches random corruption
+and most cases of a delta applied to a base that has drifted from the one it
+was built against, but not a drift that leaves the sum unchanged: two values
+swapped at a distance that is a multiple of four bytes, for example, apply
+without error to the wrong output. This only matters once a base has already
+drifted, which is a bug somewhere else; with the right base the output is
+always right. A protocol that must detect drift reliably should do so itself,
+by tracking each payload's position in its stream or by carrying a stronger
+hash alongside the delta, and treat the checksum as a backstop.
+
 **Memory retained between calls.** `Create` pools its index tables, up to about
 512 KB per entry, and `sync.Pool` keeps roughly one entry per P. On a machine
 with many cores that is tens of megabytes held between garbage collections.
@@ -93,9 +104,9 @@ only bounds it roughly. Delta encoding high-entropy data is pointless anyway,
 since the delta comes out larger than the payload.
 
 **32-bit format limits.** Every length and offset in a delta is an unsigned
-32-bit number, so inputs must be below 4 GiB. `Create` does not check this;
-oversized input produces a delta that `Apply` rejects rather than one that
-applies wrongly.
+32-bit number, so inputs must be below 4 GiB. Given a larger input, `Create`
+returns a delta that declares an empty output and is never terminated, which
+`Apply` and every other implementation reject.
 
 ## Supported versions
 

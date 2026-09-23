@@ -13,8 +13,14 @@ var (
 	// ErrChecksumMismatch reports that a delta is well formed but the bytes it
 	// produced do not match the checksum it carries. In practice this means it
 	// was applied to the wrong source: a client whose base payload has drifted
-	// from the one the delta was built against sees this rather than silently
-	// wrong data, and should ask for the payload in full.
+	// from the one the delta was built against sees this, and should ask for
+	// the payload in full.
+	//
+	// Its absence is not proof that the source was right. The checksum is a
+	// plain sum of 32-bit words, fixed by the format, so a drifted source that
+	// happens to leave the sum unchanged applies without error. Detecting drift
+	// reliably is for the protocol carrying the deltas, for example by
+	// tracking the position of each payload in its stream.
 	ErrChecksumMismatch = errors.New("fdelta: checksum mismatch")
 )
 

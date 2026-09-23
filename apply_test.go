@@ -125,6 +125,27 @@ func TestApplyWrongSourceIsChecksumMismatch(t *testing.T) {
 	}
 }
 
+// The checksum is a plain sum of big-endian words, so a wrong source that
+// leaves the sum unchanged goes undetected. This pins the limit the
+// documentation describes, so that the documentation stays true: two values
+// swapped eight bytes apart are in the same byte lane and cancel out.
+func TestApplyChecksumMissesSumPreservingDrift(t *testing.T) {
+	origin := []byte(`{"user":"alice","status":"online","x":1,"yyy":5,"score":1200,"rank":"gold","pad":"0123456789"}`)
+	target := []byte(`{"user":"alice","status":"online","x":1,"yyy":5,"score":1350,"rank":"gold","pad":"0123456789"}`)
+	drifted := []byte(`{"user":"alice","status":"online","x":5,"yyy":1,"score":1200,"rank":"gold","pad":"0123456789"}`)
+	if checksum(drifted) != checksum(origin) {
+		t.Fatal("the drifted source no longer has the same checksum; the test needs a new example")
+	}
+
+	out, err := Apply(drifted, Create(origin, target))
+	if err != nil {
+		t.Fatalf("Apply = %v; if the checksum now catches this, update the docs that say it cannot", err)
+	}
+	if bytes.Equal(out, target) {
+		t.Fatal("the delta does not copy the drifted bytes, so this example shows nothing")
+	}
+}
+
 // Every single-bit corruption of a valid delta must either be rejected or
 // produce exactly the original target, never anything else and never a panic.
 func TestApplyCorruptedDelta(t *testing.T) {

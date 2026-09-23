@@ -86,7 +86,8 @@ func OutputSize(delta []byte) (int, error)
 out, err := fdelta.Apply(base, delta)
 switch {
 case errors.Is(err, fdelta.ErrChecksumMismatch):
-    // Well formed, but base is not the source it was built from.
+    // Well formed, but the output does not match its checksum: almost
+    // always, base is not the source it was built from.
     // Ask for the payload in full.
 case errors.Is(err, fdelta.ErrInvalidDelta):
     // The delta itself is corrupt.
@@ -114,7 +115,9 @@ if n, err := fdelta.OutputSize(delta); err != nil || n > maxPayload {
 ```
 
 The checksum is an integrity check, not authentication: whoever supplies the
-delta chooses the output and can supply a matching checksum. See
+delta chooses the output and can supply a matching checksum. Nor is it a
+guarantee against a drifted base: it is a plain sum, fixed by the format, and
+some drifts leave it unchanged. See
 [SECURITY.md](SECURITY.md).
 
 ## Performance

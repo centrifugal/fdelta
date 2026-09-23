@@ -45,12 +45,14 @@
 // # Payload size and untrusted input
 //
 // [Apply] is hardened against hostile deltas: it validates one completely
-// before allocating, never panics, and reports [ErrChecksumMismatch] rather
-// than returning data built from the wrong source. Two things are worth
-// knowing beyond that.
+// before allocating, never panics, and reports [ErrChecksumMismatch] when the
+// output does not match the checksum the delta carries. That catches
+// corruption and most cases of applying a delta to the wrong source, but the
+// checksum is a plain sum fixed by the format, so it cannot catch every one;
+// see [Apply]. Two things are worth knowing beyond that.
 //
-// First, a delta is small but its output need not be. A copy command costs
-// four bytes and can copy the whole of origin, so a short delta can
+// First, a delta is small but its output need not be. A copy command costs a
+// handful of bytes and can copy the whole of origin, so a short delta can
 // legitimately declare an output far larger than either input. That is
 // inherent to the format. Use [OutputSize] to impose your own ceiling before
 // calling Apply; Apply is guaranteed not to exceed what OutputSize reported.

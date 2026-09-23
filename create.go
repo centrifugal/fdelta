@@ -10,15 +10,30 @@ import (
 // sending is small; one that is not grows by append like any other slice.
 const initialDeltaCap = 128
 
+// maxFormatLen is the largest input the format can describe: every length and
+// offset in a delta is an unsigned 32-bit number.
+const maxFormatLen = 1<<32 - 1
+
+// fitsFormat reports whether an input of length n can be described by a delta.
+func fitsFormat(n int) bool {
+	return uint64(n) <= maxFormatLen // #nosec G115 -- n is a len() result and cannot be negative
+}
+
+// appendUnrepresentable appends what Create returns for an input the format
+// cannot describe: a header declaring an empty output and no commands at all.
+// With no terminating command it is malformed to every decoder, so it cannot
+// be mistaken for a delta that applies.
+func appendUnrepresentable(dst []byte) []byte {
+	return appendInt(dst, 0, '\n')
+}
+
 // u32 narrows a length or offset to the width the format encodes them in.
 //
 // Every value passed here is a length or an index into one of the inputs, so
-// it is never negative. It can only overflow for an input of 4 GiB or more,
-// which the format cannot represent at all: see the note on limits in
-// [Create]. Such an input yields a delta that [Apply] rejects, rather than one
-// that applies to the wrong bytes.
+// it is never negative, and AppendCreate has already checked with fitsFormat
+// that neither input is too long for it to fit.
 func u32(v int) uint32 {
-	return uint32(v) // #nosec G115 -- bounded by input length; see the doc comment
+	return uint32(v) // #nosec G115 -- bounded by fitsFormat; see the doc comment
 }
 
 // Create returns a delta that turns origin into target.
@@ -34,10 +49,12 @@ func u32(v int) uint32 {
 // # Limits
 //
 // The format encodes every length and offset as an unsigned 32-bit number, so
-// neither input may exceed 4 GiB-1. Create does not check this: on a larger
-// input the lengths wrap and the delta it returns will be rejected by Apply
-// rather than silently applying wrongly, but callers with inputs anywhere near
-// that size should not be using this format.
+// neither input may exceed 4 GiB-1. Given a larger input, Create returns a
+// delta that declares an empty output and is never terminated, which Apply
+// and every other implementation of the format reject. Encoding it anyway
+// would wrap the lengths, and a delta with wrapped lengths is not reliably
+// rejected: the bytes after a wrapped literal are read as further commands,
+// and a crafted target can make them apply cleanly to the wrong output.
 //
 // Cost grows with the size of origin and with how little structure it has; see
 // the package documentation on payload size before feeding it large,
@@ -63,6 +80,10 @@ func Create(origin, target []byte) []byte {
 func AppendCreate(dst, origin, target []byte) []byte {
 	lenOut := len(target)
 	lenSrc := len(origin)
+
+	if !fitsFormat(lenOut) || !fitsFormat(lenSrc) {
+		return appendUnrepresentable(dst)
+	}
 
 	dst = appendInt(dst, u32(lenOut), '\n')
 
@@ -259,12 +280,11 @@ type scratch struct {
 // It corresponds to a source of 1 MiB.
 const maxPooledHash = 1 << 16
 
+var scratchPool sync.Pool
+
 // getScratch returns tables of at least n entries, where n is the bucket count
 // and is never below the block count, so both tables are long enough for
 // either index.
-
-var scratchPool sync.Pool
-
 func getScratch(n int) *scratch {
 	if s, _ := scratchPool.Get().(*scratch); s != nil {
 		if cap(s.collide) >= n {
